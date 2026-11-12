@@ -29,8 +29,21 @@ function getOrCreateRoom(roomId) {
       totalLikes: 0,
       likeMilestoneStep: 500,
       scene: 'live',
+      podiumStyle: 'neon',
       wheelOptions: ['10 Flexões', 'Escolher Música', 'Sem Mira 1 Ronda', 'Salve Especial', 'Desafio do Chat', 'Sorte Grande!'],
-      socials: { tiktok: '', instagram: '', youtube: '', discord: '' },
+      chatJoinOpen: false,
+      chatJoinKeyword: '!entrar',
+      poll: {
+        active: false,
+        question: 'Jogo a próxima partida de sniper?',
+        opt1Label: 'SIM (!sim)',
+        opt2Label: 'NÃO (!nao)',
+        opt1Key: '!sim',
+        opt2Key: '!nao',
+        votes1: 0,
+        votes2: 0,
+        voters: {}
+      },
       donationConfig: {
         title: 'Apoia a Live!',
         imageData: 'https://giphy.com',
@@ -50,6 +63,7 @@ function getOrCreateRoom(roomId) {
   return liveSessions[cleanRoom];
 }
 
+// 1. Motor de Voz Neural Real (Masculina / Feminina)
 app.get('/tts', async (req, res) => {
   try {
     const text = (req.query.text || 'Teste de voz HELL Live').toString().slice(0, 250);
@@ -62,33 +76,45 @@ app.get('/tts', async (req, res) => {
     const { audioStream } = tts.toStream(text, { rate, pitch });
 
     res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-cache');
     audioStream.pipe(res);
   } catch (err) {
     res.status(500).json({ error: 'Erro TTS', details: err.message });
   }
 });
 
+// 2. Pesquisa Online de GIFs & Stickers
 app.get('/search/gifs', async (req, res) => {
+  const q = (req.query.q || 'gaming').toString().trim();
   try {
-    const q = encodeURIComponent((req.query.q || 'gaming celebration').toString());
-    const type = req.query.type === 'stickers' ? '&searchfilter=sticker' : '';
-    const url = `https://tenor.com{q}&key=LIVDSRZULELA&limit=24${type}`;
-    const response = await axios.get(url);
-    const results = (response.data.results || []).map(item => ({
-      id: item.id,
-      title: item.content_description || 'GIF',
-      url: item.media?.[0]?.tinygif?.url || item.media?.[0]?.gif?.url || ''
-    })).filter(i => i.url);
-    res.json({ results });
-  } catch (err) {
-    res.json({ results: [] });
-  }
+    const url = `https://tenor.com{encodeURIComponent(q)}&key=LIVDSRZULELA&limit=24`;
+    const response = await axios.get(url, { timeout: 5000 });
+    const results = (response.data.results || []).map(item => {
+      const mediaObj = Array.isArray(item.media) ? item.media[0] : null;
+      const gifUrl = mediaObj?.tinygif?.url || mediaObj?.gif?.url || '';
+      return { id: item.id, title: item.content_description || q, url: gifUrl };
+    }).filter(i => i.url);
+    if (results.length > 0) return res.json({ results });
+  } catch (_) {}
+
+  const fallback = [
+    { id: '1', title: 'Chuva de Moedas', url: 'https://giphy.com' },
+    { id: '2', title: 'Leão TikTok', url: 'https://giphy.com' },
+    { id: '3', title: 'Rosa Brilhante', url: 'https://giphy.com' },
+    { id: '4', title: 'Festa Néon', url: 'https://giphy.com' },
+    { id: '5', title: 'GG Vitória', url: 'https://giphy.com' },
+    { id: '6', title: 'Novo Seguidor', url: 'https://giphy.com' },
+    { id: '7', title: 'Coração Explosão', url: 'https://giphy.com' },
+    { id: '8', title: 'Fogo Azul', url: 'https://giphy.com' }
+  ];
+  res.json({ results: fallback });
 });
 
 app.get('/community/live', (req, res) => {
   res.json({ streamers: Object.values(activeStreamers) });
 });
 
+// 3. Estúdio de Overlays, Votação, Destaque de Chat e Pódio
 app.get('/overlay/:room', (req, res) => {
   const room = req.params.room.toLowerCase().replace('@', '');
   const session = getOrCreateRoom(room);
@@ -114,7 +140,7 @@ app.get('/overlay/:room', (req, res) => {
   #alert-box {
     position: fixed; top: 10%; left: 50%; transform: translateX(-50%) scale(0.8);
     text-align: center; opacity: 0; transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    background: rgba(5, 11, 30, 0.9); border: 2px solid #38BDF8; border-radius: 20px;
+    background: rgba(5, 11, 30, 0.92); border: 2px solid #38BDF8; border-radius: 20px;
     padding: 20px 32px; box-shadow: 0 0 35px rgba(30, 120, 255, 0.8); max-width: 480px; z-index: 40;
   }
   #alert-box.show { opacity: 1; transform: translateX(-50%) scale(1); }
@@ -122,10 +148,24 @@ app.get('/overlay/:room', (req, res) => {
   #alert-gif { max-width: 230px; max-height: 190px; border-radius: 12px; margin-bottom: 10px; }
   #alert-user { font-size: 26px; font-weight: 900; color: #38BDF8; }
   #alert-msg { font-size: 19px; font-weight: 600; margin-top: 6px; }
+  #poll-box {
+    position: fixed; left: 20px; top: 80px; width: 290px; background: rgba(5, 11, 30, 0.9);
+    border: 2px solid #38BDF8; border-radius: 16px; padding: 14px; display: none; z-index: 35;
+  }
+  #poll-box.show { display: block; }
+  .poll-bar-bg { background: rgba(255,255,255,0.1); border-radius: 8px; height: 18px; overflow: hidden; margin-top: 4px; margin-bottom: 8px; }
+  .poll-bar-fill { height: 100%; background: linear-gradient(90deg, #1E78FF, #38BDF8); transition: width 0.3s; }
+  #chat-pin {
+    position: fixed; bottom: 85px; left: 50%; transform: translateX(-50%); background: rgba(5, 11, 30, 0.94);
+    border: 2px solid #38BDF8; border-radius: 14px; padding: 12px 22px; display: none; max-width: 520px; z-index: 38;
+  }
+  #chat-pin.show { display: block; }
   #podium-box {
     position: fixed; top: 20px; right: 20px; background: rgba(5, 11, 30, 0.88);
     border: 1.5px solid #1E78FF; border-radius: 14px; padding: 12px 16px; width: 250px;
   }
+  #podium-box.gold { border-color: #FBBF24; background: rgba(28, 20, 5, 0.92); }
+  #podium-box.minimal { border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.65); }
   .podium-title { font-size: 13px; font-weight: 800; color: #38BDF8; letter-spacing: 1px; margin-bottom: 8px; }
   .podium-row { display: flex; justify-content: space-between; font-size: 14px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
   #like-counter {
@@ -151,6 +191,14 @@ app.get('/overlay/:room', (req, res) => {
   <div id="scene-screen"><h1 id="scene-title" style="font-size:52px; color:#38BDF8; margin:0;">A COMEÇAR EM BREVE</h1><p style="font-size:22px; color:#cbd5e1;">HELL Live · LIVE · PLAY · CONNECT</p></div>
   <div id="cam-frame"></div>
   <div id="like-counter">❤️ <span id="likes-val">${session.totalLikes}</span></div>
+  <div id="poll-box">
+    <div id="poll-q" style="font-weight:900; color:#38BDF8; font-size:15px; margin-bottom:8px;"></div>
+    <div style="display:flex; justify-content:space-between; font-size:13px;"><span id="poll-l1"></span><b id="poll-p1">0%</b></div>
+    <div class="poll-bar-bg"><div id="poll-b1" class="poll-bar-fill" style="width:0%"></div></div>
+    <div style="display:flex; justify-content:space-between; font-size:13px;"><span id="poll-l2"></span><b id="poll-p2">0%</b></div>
+    <div class="poll-bar-bg"><div id="poll-b2" class="poll-bar-fill" style="width:0%"></div></div>
+  </div>
+  <div id="chat-pin"><b id="pin-user" style="color:#38BDF8;"></b>: <span id="pin-msg"></span></div>
   <div id="alert-box">
     <img id="alert-avatar" src="" />
     <img id="alert-gif" src="" />
@@ -161,7 +209,7 @@ app.get('/overlay/:room', (req, res) => {
     <div style="font-size:16px; color:#38BDF8; font-weight:bold;">🎡 ROLETA INTERATIVA</div>
     <div id="wheel-result" style="font-size:34px; font-weight:900; margin-top:12px; color:white;">A girar...</div>
   </div>
-  <div id="podium-box">
+  <div id="podium-box" class="${session.podiumStyle}">
     <div class="podium-title">🏆 PÓDIO DA LIVE</div>
     <div id="podium-list"><div class="podium-row"><span>A aguardar apoio...</span></div></div>
   </div>
@@ -195,6 +243,34 @@ app.get('/overlay/:room', (req, res) => {
       else if (scene === 'brb') { title.textContent = 'JÁ VOLTAMOS (PAUSA)'; sc.classList.add('active'); }
       else if (scene === 'ending') { title.textContent = 'OBRIGADO POR ASSISTIRES!'; sc.classList.add('active'); }
       else if (scene === 'cam_frame') { cam.classList.add('active'); }
+    });
+
+    socket.on('poll_update', (p) => {
+      const pb = document.getElementById('poll-box');
+      if (!p || !p.active) { pb.classList.remove('show'); return; }
+      pb.classList.add('show');
+      document.getElementById('poll-q').textContent = p.question;
+      document.getElementById('poll-l1').textContent = p.opt1Label;
+      document.getElementById('poll-l2').textContent = p.opt2Label;
+      const tot = (p.votes1 + p.votes2) || 1;
+      const p1 = Math.round((p.votes1 / tot) * 100);
+      const p2 = p.votes1 + p.votes2 === 0 ? 0 : 100 - p1;
+      document.getElementById('poll-p1').textContent = p1 + '%';
+      document.getElementById('poll-b1').style.width = p1 + '%';
+      document.getElementById('poll-p2').textContent = p2 + '%';
+      document.getElementById('poll-b2').style.width = p2 + '%';
+    });
+
+    socket.on('pin_chat', ({ user, message }) => {
+      const el = document.getElementById('chat-pin');
+      document.getElementById('pin-user').textContent = user;
+      document.getElementById('pin-msg').textContent = message;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 8000);
+    });
+
+    socket.on('podium_style', (style) => {
+      document.getElementById('podium-box').className = style || 'neon';
     });
 
     socket.on('overlay_alert', (data) => {
@@ -297,7 +373,31 @@ app.get('/doar/:room', (req, res) => {
 </html>`);
 });
 
-app.get('/', (req, res) => res.send('HELL Live Engine v3.0 Online!'));
+app.get('/', (req, res) => res.send('HELL Live Engine v3.1 Online!'));
+function handleIncomingChat(activeRoom, user, message) {
+  const session = getOrCreateRoom(activeRoom);
+  const cleanMsg = (message || '').trim().toLowerCase();
+
+  if (session.poll.active && !session.poll.voters[user]) {
+    if (cleanMsg === session.poll.opt1Key.toLowerCase()) {
+      session.poll.votes1++;
+      session.poll.voters[user] = 1;
+      io.to(activeRoom).emit('poll_update', session.poll);
+    } else if (cleanMsg === session.poll.opt2Key.toLowerCase()) {
+      session.poll.votes2++;
+      session.poll.voters[user] = 2;
+      io.to(activeRoom).emit('poll_update', session.poll);
+    }
+  }
+
+  if (session.chatJoinOpen && cleanMsg === session.chatJoinKeyword.toLowerCase()) {
+    if (!session.wheelOptions.includes(user)) {
+      session.wheelOptions.push(user);
+      io.to(activeRoom).emit('wheel_options_updated', session.wheelOptions);
+    }
+  }
+}
+
 io.on('connection', (socket) => {
   let tiktokConn = null;
   let twitchClient = null;
@@ -309,6 +409,35 @@ io.on('connection', (socket) => {
     const session = getOrCreateRoom(activeRoom);
     socket.emit('goal_update', session.goal);
     socket.emit('likes_total', session.totalLikes);
+    socket.emit('poll_update', session.poll);
+  });
+
+  socket.on('update_poll', ({ room, poll }) => {
+    const clean = (room || 'default').toLowerCase().replace('@', '');
+    const session = getOrCreateRoom(clean);
+    session.poll = { ...session.poll, ...poll, votes1: 0, votes2: 0, voters: {} };
+    io.to(clean).emit('poll_update', session.poll);
+  });
+
+  socket.on('toggle_chat_wheel_join', ({ room, open, keyword }) => {
+    const clean = (room || 'default').toLowerCase().replace('@', '');
+    const session = getOrCreateRoom(clean);
+    session.chatJoinOpen = open;
+    if (keyword) session.chatJoinKeyword = keyword;
+    if (open) session.wheelOptions = [];
+    io.to(clean).emit('wheel_options_updated', session.wheelOptions);
+  });
+
+  socket.on('pin_chat_message', ({ room, user, message }) => {
+    const clean = (room || 'default').toLowerCase().replace('@', '');
+    io.to(clean).emit('pin_chat', { user, message });
+  });
+
+  socket.on('set_podium_style', ({ room, style }) => {
+    const clean = (room || 'default').toLowerCase().replace('@', '');
+    const session = getOrCreateRoom(clean);
+    session.podiumStyle = style;
+    io.to(clean).emit('podium_style', style);
   });
 
   socket.on('create_pair_code', (room) => {
@@ -361,12 +490,7 @@ io.on('connection', (socket) => {
     const clean = (room || 'default').toLowerCase().replace('@', '');
     const session = getOrCreateRoom(clean);
     io.to(clean).emit('live_event', { platform: 'donation', type: 'gift', user, message });
-    io.to(clean).emit('overlay_alert', {
-      user,
-      message,
-      gifUrl: session.donationConfig.imageData,
-      duration: 6
-    });
+    io.to(clean).emit('overlay_alert', { user, message, gifUrl: session.donationConfig.imageData, duration: 6 });
   });
 
   socket.on('trigger_overlay_alert', ({ room, alertData }) => {
@@ -390,9 +514,9 @@ io.on('connection', (socket) => {
         socket.emit('status', { platform: 'tiktok', connected: true, user: cleanUser });
 
         tiktokConn.on('chat', (data) => {
-          io.to(activeRoom).emit('live_event', {
-            platform: 'tiktok', type: 'chat', user: data.nickname || data.uniqueId, avatar: data.profilePictureUrl, message: data.comment
-          });
+          const u = data.nickname || data.uniqueId;
+          handleIncomingChat(activeRoom, u, data.comment);
+          io.to(activeRoom).emit('live_event', { platform: 'tiktok', type: 'chat', user: u, avatar: data.profilePictureUrl, message: data.comment });
         });
 
         tiktokConn.on('like', (data) => {
@@ -430,8 +554,7 @@ io.on('connection', (socket) => {
           io.to(activeRoom).emit('podium_update', { topGifts });
           io.to(activeRoom).emit('live_event', {
             platform: 'tiktok', type: 'gift', user: u, avatar: data.profilePictureUrl,
-            giftName: data.giftName,
-            message: `enviou ${data.repeatCount}x ${data.giftName}!`
+            giftName: data.giftName, message: `enviou ${data.repeatCount}x ${data.giftName}!`
           });
         });
       } catch (err) {
@@ -445,7 +568,11 @@ io.on('connection', (socket) => {
         socket.emit('status', { platform: 'twitch', connected: true, user: cleanUser });
       }).catch(() => socket.emit('status', { platform: 'twitch', connected: false, error: 'Erro ao ligar à Twitch.' }));
       twitchClient.on('message', (ch, tags, msg, self) => {
-        if (!self) io.to(activeRoom).emit('live_event', { platform: 'twitch', type: 'chat', user: tags['display-name'] || tags.username, message: msg });
+        if (!self) {
+          const u = tags['display-name'] || tags.username;
+          handleIncomingChat(activeRoom, u, msg);
+          io.to(activeRoom).emit('live_event', { platform: 'twitch', type: 'chat', user: u, message: msg });
+        }
       });
     } else {
       activeStreamers[activeRoom] = {
@@ -465,4 +592,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`HELL Live Engine v3.0 a rodar na porta ${PORT}`));
+server.listen(PORT, () => console.log(`HELL Live Engine v3.1 a rodar na porta ${PORT}`));
