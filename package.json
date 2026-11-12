@@ -1,7 +1,7 @@
 {
   "name": "live-alerts-engine",
-  "version": "1.0.0",
-  "description": "Conector gratuito multiplataforma para lives",
+  "version": "2.0.0",
+  "description": "Motor de alertas, vozes neurais, overlays e doacoes do HELL Live",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,6 +11,7 @@
     "socket.io": "^4.7.2",
     "tiktok-live-connector": "^1.2.3",
     "tmi.js": "^1.8.5",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "msedge-tts": "^1.0.5"
   }
 }
